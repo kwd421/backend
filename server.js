@@ -30,6 +30,30 @@ app.get('/anime', (req, res) => {
       })
   })
 
+app.get('/animegenre', (req, res) => {
+    const sql = 'select * from animegenre'
+    
+      db.query(sql, (err, rows) => {
+          if (err) {
+              res.json({result: "error"})
+              return console.log(err)
+          }
+          res.json(rows)
+      })
+  })
+
+app.get('/listanime', (req, res) => {
+    const sql = 'select * from listanime'
+    
+      db.query(sql, (err, rows) => {
+          if (err) {
+              res.json({result: "error"})
+              return console.log(err)
+          }
+          res.json(rows)
+      })
+  })
+
 app.listen(port, () => {
   console.log(`서버 실행됨 (port ${port})`)
 })
