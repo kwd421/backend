@@ -67,8 +67,39 @@ struct ProductFrameSnapshot {
     let effectModel: [Double]? = nil
     let parallax: [Double]? = nil
     let lights: [Double]? = nil
-    let audio: ExactAudioBands
+    let exactAudio: ExactAudioBands?
     let pointer: PointerSnapshot?
+}
+
+enum MockFrameError: Error {
+    case exactEncodingFailed
+}
+
+final class MockProductFrameOwner {
+    var clock = 0
+    var exactCalls = 0
+    var legacyCalls = 0
+    var submitCalls = 0
+
+    func render(exactAvailable: Bool, failExact: Bool) throws {
+        if exactAvailable {
+            exactCalls += 1
+            let previousClock = clock
+            clock += 1
+            do {
+                if failExact {
+                    throw MockFrameError.exactEncodingFailed
+                }
+                submitCalls += 1
+            } catch {
+                clock = previousClock
+                throw error
+            }
+            return
+        }
+        legacyCalls += 1
+        submitCalls += 1
+    }
 }
 
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -78,28 +109,55 @@ func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
-let left = (0..<64).map { Double($0) / 64 }
-let right = (0..<64).map { Double(63 - $0) / 64 }
-let audio = ExactAudioBands(left64: left, right64: right)
-require(audio.left64 == left, "64-band left channel changed")
-require(audio.right64 == right, "64-band right channel changed")
-require(audio.left32.count == 32 && audio.right32.count == 32, "32-band shape changed")
-require(audio.left16.count == 16 && audio.right16.count == 16, "16-band shape changed")
-require(audio.left32[0] == max(left[0], left[1]), "32-band reduction is not pairwise maximum")
-require(audio.left16[0] == max(audio.left32[0], audio.left32[1]), "16-band reduction is not pairwise maximum")
-
 let pointer = try PointerSnapshot(
     previous: [0.25, 0.5],
     current: [0.75, 1],
     state: [1, 0, 0, 0]
 )
-let frame = ProductFrameSnapshot(audio: audio, pointer: pointer)
-require(frame.modelViewProjection == ProductFrameSnapshot.identity, "MVP is not explicit identity")
-require(frame.effectTextureProjectionInverse == ProductFrameSnapshot.identity, "texture projection inverse is not explicit identity")
-require(frame.effectModel == nil, "unrecovered effect-model state was invented")
-require(frame.parallax == nil, "unrecovered parallax state was invented")
-require(frame.lights == nil, "unrecovered light state was invented")
-require(frame.pointer == pointer, "validated pointer state changed")
+let unavailableAudioFrame = ProductFrameSnapshot(
+    exactAudio: nil,
+    pointer: pointer
+)
+require(unavailableAudioFrame.exactAudio == nil, "unavailable exact audio was replaced by silence")
+require(unavailableAudioFrame.modelViewProjection == ProductFrameSnapshot.identity, "MVP is not explicit identity")
+require(unavailableAudioFrame.effectTextureProjectionInverse == ProductFrameSnapshot.identity, "texture projection inverse is not explicit identity")
+require(unavailableAudioFrame.effectModel == nil, "unrecovered effect-model state was invented")
+require(unavailableAudioFrame.parallax == nil, "unrecovered parallax state was invented")
+require(unavailableAudioFrame.lights == nil, "unrecovered light state was invented")
+require(unavailableAudioFrame.pointer == pointer, "validated pointer state changed")
+
+let left = (0..<64).map { Double($0) / 64 }
+let right = (0..<64).map { Double(63 - $0) / 64 }
+let audio = ExactAudioBands(left64: left, right64: right)
+let publishedAudioFrame = ProductFrameSnapshot(
+    exactAudio: audio,
+    pointer: nil
+)
+require(publishedAudioFrame.exactAudio?.left64 == left, "64-band left channel changed")
+require(publishedAudioFrame.exactAudio?.right64 == right, "64-band right channel changed")
+require(publishedAudioFrame.exactAudio?.left32.count == 32, "32-band shape changed")
+require(publishedAudioFrame.exactAudio?.left16.count == 16, "16-band shape changed")
+require(publishedAudioFrame.exactAudio?.left32[0] == max(left[0], left[1]), "32-band reduction is not pairwise maximum")
+
+let owner = MockProductFrameOwner()
+do {
+    try owner.render(exactAvailable: true, failExact: true)
+    require(false, "failing exact frame was accepted")
+} catch MockFrameError.exactEncodingFailed {
+}
+require(owner.clock == 0, "failed exact frame advanced the clock")
+require(owner.exactCalls == 1, "exact frame was not attempted once")
+require(owner.legacyCalls == 0, "exact failure silently invoked legacy rendering")
+require(owner.submitCalls == 0, "failed exact frame submitted a command buffer")
+
+try owner.render(exactAvailable: true, failExact: false)
+require(owner.clock == 1, "successful exact frame did not retain its clock state")
+require(owner.submitCalls == 1, "successful exact frame did not submit exactly once")
+require(owner.legacyCalls == 0, "successful exact frame invoked legacy rendering")
+
+try owner.render(exactAvailable: false, failExact: false)
+require(owner.legacyCalls == 1, "legacy rendering was not selected when exact runtime was absent")
+require(owner.submitCalls == 2, "legacy frame did not submit exactly once")
 
 do {
     _ = try PointerSnapshot(previous: [0], current: [0, 0], state: [0, 0, 0, 0])
@@ -117,4 +175,4 @@ do {
     require(false, "unexpected current-position error: \(error)")
 }
 
-print("PASS: exact product-frame snapshot invariants")
+print("PASS: exact product-frame ownership and snapshot invariants")
