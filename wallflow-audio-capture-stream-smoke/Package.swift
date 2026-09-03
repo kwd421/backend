@@ -12,10 +12,15 @@ let package = Package(
         .executable(
             name: "wallflow-avfoundation-tap-type-smoke",
             targets: ["AVFoundationTapTypeSmoke"]
+        ),
+        .executable(
+            name: "wallflow-sound-admission-smoke",
+            targets: ["SoundAdmissionSmoke"]
         )
     ],
     targets: [
         .executableTarget(name: "StreamSmoke"),
-        .executableTarget(name: "AVFoundationTapTypeSmoke")
+        .executableTarget(name: "AVFoundationTapTypeSmoke"),
+        .executableTarget(name: "SoundAdmissionSmoke")
     ]
 )
