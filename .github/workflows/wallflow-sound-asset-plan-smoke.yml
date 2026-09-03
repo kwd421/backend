@@ -1,0 +1,25 @@
+name: Wallflow sound asset-plan smoke
+
+on:
+  push:
+    paths:
+      - wallflow-sound-asset-plan-smoke/**
+      - .github/workflows/wallflow-sound-asset-plan-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift toolchain
+        run: swift --version
+      - name: Build with complete Swift concurrency checking
+        run: |
+          swift build \
+            --package-path wallflow-sound-asset-plan-smoke \
+            -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -warnings-as-errors
+      - name: Validate atomic authored sound resolution
+        run: swift run --package-path wallflow-sound-asset-plan-smoke wallflow-sound-asset-plan-smoke
