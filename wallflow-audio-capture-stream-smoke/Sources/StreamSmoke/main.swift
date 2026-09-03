@@ -1,10 +1,10 @@
 import Foundation
 
-private enum StreamError: Error, Equatable, Sendable {
+enum StreamError: Error, Equatable, Sendable {
     case mismatchedChannelFrameCount(left: Int, right: Int)
 }
 
-private final class Publication: @unchecked Sendable {
+final class Publication: @unchecked Sendable {
     enum Event: Equatable, Sendable {
         case block(left: [Float], right: [Float])
         case silence
@@ -26,7 +26,7 @@ private final class Publication: @unchecked Sendable {
     }
 }
 
-private final class CaptureStream: @unchecked Sendable {
+final class CaptureStream: @unchecked Sendable {
     enum Lifecycle: Equatable, Sendable {
         case running
         case paused
@@ -178,7 +178,7 @@ private final class CaptureStream: @unchecked Sendable {
     }
 }
 
-private func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
         fputs("FAIL: \(message)\n", stderr)
         exit(1)
@@ -209,7 +209,8 @@ require(paused.pendingFrameCount == 0, "pause retained a cross-boundary partial 
 require(publication.snapshot().last == .silence, "pause did not publish explicit silence")
 
 stream.enqueue(left: Array(repeating: 7, count: 8))
-require(try stream.synchronize().publishedBlockCount == 1, "paused callback was consumed")
+let pausedAfterCallback = try stream.synchronize()
+require(pausedAfterCallback.publishedBlockCount == 1, "paused callback was consumed")
 
 stream.resume()
 stream.enqueue(left: Array(repeating: 0, count: 8))
@@ -234,12 +235,14 @@ require(stream.status().publishedBlockCount == 2, "terminal stream revived after
 let stopPublication = Publication()
 let stopStream = CaptureStream(captureFrameCount: 4, publication: stopPublication)
 stopStream.enqueue(left: [1, 2, 3, 4])
-require(try stopStream.synchronize().publishedBlockCount == 1, "stop fixture did not publish")
+let beforeStop = try stopStream.synchronize()
+require(beforeStop.publishedBlockCount == 1, "stop fixture did not publish")
 stopStream.stop()
 let stopped = try stopStream.synchronize()
 require(stopped.lifecycle == .stopped, "stop lifecycle was not installed")
 require(stopPublication.snapshot().last == .silence, "healthy stop did not publish silence")
 stopStream.enqueue(left: [5, 6, 7, 8])
-require(try stopStream.synchronize() == stopped, "stopped stream accepted a later callback")
+let afterStopCallback = try stopStream.synchronize()
+require(afterStopCallback == stopped, "stopped stream accepted a later callback")
 
 print("PASS: PCM capture FIFO, lifecycle, and failure publication ownership")
