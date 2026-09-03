@@ -25,6 +25,51 @@ struct PlaybackOccurrence: Equatable, Sendable {
     }
 }
 
+enum TransportState: Equatable, Sendable {
+    case stoppedAtBeginning
+    case playing
+    case pausedAtCurrentTime
+}
+
+enum TransportAction: Equatable, Sendable {
+    case none
+    case startFromBeginning
+    case resumeFromCurrentTime
+    case pauseAtCurrentTime
+    case stopAndResetToBeginning
+}
+
+struct Transport: Equatable, Sendable {
+    private(set) var state: TransportState = .stoppedAtBeginning
+
+    var isPlaying: Bool { state == .playing }
+
+    mutating func play() -> TransportAction {
+        switch state {
+        case .playing:
+            return .none
+        case .pausedAtCurrentTime:
+            state = .playing
+            return .resumeFromCurrentTime
+        case .stoppedAtBeginning:
+            state = .playing
+            return .startFromBeginning
+        }
+    }
+
+    mutating func pause() -> TransportAction {
+        guard state == .playing else { return .none }
+        state = .pausedAtCurrentTime
+        return .pauseAtCurrentTime
+    }
+
+    mutating func stop() -> TransportAction {
+        guard state != .stoppedAtBeginning else { return .none }
+        state = .stoppedAtBeginning
+        return .stopAndResetToBeginning
+    }
+}
+
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
         fputs("FAIL: \(message)\n", stderr)
@@ -59,6 +104,16 @@ struct WPEAudioOccurrenceSmoke {
             require(gain == 1.01, "high gain diagnostic changed")
         }
 
+        var transport = Transport()
+        require(transport.play() == .startFromBeginning, "first play did not start at beginning")
+        require(transport.play() == .none, "play restarted an already-running sound")
+        require(transport.isPlaying, "playing state was lost")
+        require(transport.pause() == .pauseAtCurrentTime, "pause did not retain current time")
+        require(!transport.isPlaying, "paused sound still reports playing")
+        require(transport.play() == .resumeFromCurrentTime, "play did not resume paused time")
+        require(transport.stop() == .stopAndResetToBeginning, "stop did not reset timer")
+        require(transport.play() == .startFromBeginning, "play after stop did not restart at beginning")
+
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 48_000,
@@ -91,6 +146,6 @@ struct WPEAudioOccurrenceSmoke {
         player.stop()
         engine.stop()
 
-        print("PASS: exact WPE audio occurrence is provenance-bound and scheduled once")
+        print("PASS: exact WPE audio occurrence and documented transport remain isolated")
     }
 }
