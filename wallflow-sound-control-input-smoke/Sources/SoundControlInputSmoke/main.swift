@@ -41,13 +41,19 @@ struct BoolInput: Equatable, Sendable {
     let source: InputSource
 }
 
+struct SoundReference: Hashable, Sendable {
+    let objectIndex: Int
+}
+
 struct AuthoredSound: Equatable, Sendable {
+    let reference: SoundReference
     let playbackMode: StringField?
     let startSilent: BoolField?
     let mutedInEditor: BoolField?
 }
 
 struct ControlInputs: Equatable, Sendable {
+    let reference: SoundReference
     let playbackMode: StringInput?
     let startSilent: BoolInput?
     let mutedInEditor: BoolInput?
@@ -59,6 +65,7 @@ enum ControlCompiler {
         properties: [String: String]
     ) -> ControlInputs {
         ControlInputs(
+            reference: sound.reference,
             playbackMode: sound.playbackMode.map {
                 resolve($0, properties: properties)
             },
@@ -114,6 +121,80 @@ enum ControlCompiler {
     }
 }
 
+struct ResolvedAsset: Equatable, Sendable {
+    let reference: SoundReference
+    let authoredPathIndex: Int
+    let rawPath: String
+    let bytes: [UInt8]
+}
+
+struct ResolvedSoundObject: Equatable, Sendable {
+    let sound: AuthoredSound
+    let assets: [ResolvedAsset]
+}
+
+struct SchedulerInputObject: Equatable, Sendable {
+    let sound: AuthoredSound
+    let assets: [ResolvedAsset]
+    let controls: ControlInputs
+}
+
+struct SchedulerInputPlan: Equatable, Sendable {
+    let packageHash: String
+    let objects: [SchedulerInputObject]
+}
+
+enum SchedulerInputError: Error, Equatable, Sendable {
+    case duplicateAssetObject(SoundReference)
+    case duplicateControlObject(SoundReference)
+    case missingControlObject(SoundReference)
+    case extraControlObject(SoundReference)
+}
+
+enum SchedulerInputCompiler {
+    static func compile(
+        packageHash: String,
+        resolvedObjects: [ResolvedSoundObject],
+        properties: [String: String]
+    ) throws -> SchedulerInputPlan {
+        var controls: [SoundReference: ControlInputs] = [:]
+        for object in resolvedObjects {
+            let input = ControlCompiler.compile(
+                sound: object.sound,
+                properties: properties
+            )
+            guard controls.updateValue(input, forKey: input.reference) == nil else {
+                throw SchedulerInputError.duplicateControlObject(input.reference)
+            }
+        }
+
+        var seen: Set<SoundReference> = []
+        let objects = try resolvedObjects.map { object in
+            let reference = object.sound.reference
+            guard seen.insert(reference).inserted else {
+                throw SchedulerInputError.duplicateAssetObject(reference)
+            }
+            guard let input = controls.removeValue(forKey: reference) else {
+                throw SchedulerInputError.missingControlObject(reference)
+            }
+            return SchedulerInputObject(
+                sound: object.sound,
+                assets: object.assets,
+                controls: input
+            )
+        }
+        if let extra = controls.keys.sorted(
+            by: { $0.objectIndex < $1.objectIndex }
+        ).first {
+            throw SchedulerInputError.extraControlObject(extra)
+        }
+        return SchedulerInputPlan(
+            packageHash: packageHash,
+            objects: objects
+        )
+    }
+}
+
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
         fputs("FAIL: \(message)\n", stderr)
@@ -121,24 +202,27 @@ func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
+let literalSound = AuthoredSound(
+    reference: SoundReference(objectIndex: 0),
+    playbackMode: .literal("single"),
+    startSilent: .literal(false),
+    mutedInEditor: .literal(true)
+)
 let literal = ControlCompiler.compile(
-    sound: AuthoredSound(
-        playbackMode: .literal("single"),
-        startSilent: .literal(false),
-        mutedInEditor: .literal(true)
-    ),
+    sound: literalSound,
     properties: [:]
 )
 require(literal.playbackMode == StringInput(rawValue: "single", source: .literal), "literal mode changed")
 require(literal.startSilent == BoolInput(value: .authored(false), source: .literal), "literal startsilent changed")
 require(literal.mutedInEditor == BoolInput(value: .authored(true), source: .literal), "literal editor mute changed")
 
-let bound = AuthoredSound(
+let boundSound = AuthoredSound(
+    reference: SoundReference(objectIndex: 2),
     playbackMode: .userBinding(StringBinding(propertyID: "mode", fallback: "multi")),
     startSilent: .userBinding(BoolBinding(propertyID: "silent", fallback: true)),
     mutedInEditor: .userBinding(BoolBinding(propertyID: "editorMute", fallback: false))
 )
-let fallback = ControlCompiler.compile(sound: bound, properties: [:])
+let fallback = ControlCompiler.compile(sound: boundSound, properties: [:])
 require(fallback.playbackMode == StringInput(
     rawValue: "multi",
     source: .authoredFallback(propertyID: "mode")
@@ -152,13 +236,14 @@ require(fallback.mutedInEditor == BoolInput(
     source: .authoredFallback(propertyID: "editorMute")
 ), "editor mute fallback changed")
 
+let properties = [
+    "mode": "future-mode",
+    "silent": "1",
+    "editorMute": "OFF"
+]
 let overridden = ControlCompiler.compile(
-    sound: bound,
-    properties: [
-        "mode": "future-mode",
-        "silent": "1",
-        "editorMute": "OFF"
-    ]
+    sound: boundSound,
+    properties: properties
 )
 require(overridden.playbackMode == StringInput(
     rawValue: "future-mode",
@@ -173,18 +258,91 @@ require(overridden.mutedInEditor == BoolInput(
     source: .userProperty(propertyID: "editorMute")
 ), "user editor mute was coerced")
 
+let missingSound = AuthoredSound(
+    reference: SoundReference(objectIndex: 4),
+    playbackMode: nil,
+    startSilent: nil,
+    mutedInEditor: nil
+)
 let missing = ControlCompiler.compile(
-    sound: AuthoredSound(
-        playbackMode: nil,
-        startSilent: nil,
-        mutedInEditor: nil
-    ),
+    sound: missingSound,
     properties: ["mode": "loop"]
 )
 require(missing == ControlInputs(
+    reference: missingSound.reference,
     playbackMode: nil,
     startSilent: nil,
     mutedInEditor: nil
 ), "missing authored controls gained defaults")
 
-print("PASS: WPE sound mode/start/editor controls retain literal, fallback, and raw user-property identity")
+let plan = try SchedulerInputCompiler.compile(
+    packageHash: "package-sha256",
+    resolvedObjects: [
+        ResolvedSoundObject(
+            sound: literalSound,
+            assets: [
+                ResolvedAsset(
+                    reference: literalSound.reference,
+                    authoredPathIndex: 0,
+                    rawPath: "sounds/a.wav",
+                    bytes: [1, 2, 3]
+                ),
+                ResolvedAsset(
+                    reference: literalSound.reference,
+                    authoredPathIndex: 1,
+                    rawPath: "sounds/a.wav",
+                    bytes: [1, 2, 3]
+                )
+            ]
+        ),
+        ResolvedSoundObject(
+            sound: boundSound,
+            assets: [
+                ResolvedAsset(
+                    reference: boundSound.reference,
+                    authoredPathIndex: 0,
+                    rawPath: "sounds/b.wav",
+                    bytes: [4, 5]
+                )
+            ]
+        )
+    ],
+    properties: properties
+)
+require(plan.packageHash == "package-sha256", "package identity changed")
+require(plan.objects.map { $0.sound.reference.objectIndex } == [0, 2], "object order changed")
+require(plan.objects[0].assets.map(\.rawPath) == ["sounds/a.wav", "sounds/a.wav"], "duplicate authored path was compacted")
+require(plan.objects[1].controls == overridden, "controls were re-resolved after joining")
+
+let duplicateReference = SoundReference(objectIndex: 9)
+do {
+    _ = try SchedulerInputCompiler.compile(
+        packageHash: "package-sha256",
+        resolvedObjects: [
+            ResolvedSoundObject(
+                sound: AuthoredSound(
+                    reference: duplicateReference,
+                    playbackMode: nil,
+                    startSilent: nil,
+                    mutedInEditor: nil
+                ),
+                assets: []
+            ),
+            ResolvedSoundObject(
+                sound: AuthoredSound(
+                    reference: duplicateReference,
+                    playbackMode: .literal("single"),
+                    startSilent: nil,
+                    mutedInEditor: nil
+                ),
+                assets: []
+            )
+        ],
+        properties: [:]
+    )
+    require(false, "duplicate scheduler object identity was accepted")
+} catch SchedulerInputError.duplicateControlObject(let reference) {
+    require(reference == duplicateReference, "duplicate diagnostics changed identity")
+}
+
+print("PASS: WPE sound assets and literal/fallback/raw controls join atomically by authored object identity")
