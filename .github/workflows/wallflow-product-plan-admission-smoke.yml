@@ -1,0 +1,28 @@
+name: Wallflow product-plan admission smoke
+
+on:
+  push:
+    paths:
+      - wallflow-product-plan-admission-smoke/**
+      - .github/workflows/wallflow-product-plan-admission-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift toolchain
+        run: swift --version
+      - name: Build with complete concurrency checking
+        run: >-
+          swift build
+          --package-path wallflow-product-plan-admission-smoke
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warnings-as-errors
+      - name: Validate pre-runtime product-plan admission
+        run: >-
+          swift run
+          --package-path wallflow-product-plan-admission-smoke
+          wallflow-product-plan-admission-smoke
