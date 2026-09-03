@@ -1,6 +1,6 @@
 import Foundation
 
-private struct AuthoredSound: Equatable, Sendable {
+struct AuthoredSound: Equatable, Sendable {
     let objectIndex: Int
     let objectID: Int?
     let paths: [String]
@@ -9,13 +9,13 @@ private struct AuthoredSound: Equatable, Sendable {
     let maximumTime: String?
 }
 
-private enum SoundAdmissionError: Error, Equatable, Sendable {
+enum SoundAdmissionError: Error, Equatable, Sendable {
     case invalidScene
     case unsupportedSoundShape(objectIndex: Int)
     case unrecoveredPlaybackSchedule([AuthoredSound])
 }
 
-private enum SoundAdmission {
+enum SoundAdmission {
     static func compile(sceneData: Data) throws -> [AuthoredSound] {
         guard let root = try JSONSerialization.jsonObject(with: sceneData) as? [String: Any],
               let objects = root["objects"] as? [Any] else {
@@ -63,7 +63,7 @@ private enum SoundAdmission {
     }
 }
 
-private func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
         fputs("FAIL: \(message)\n", stderr)
         exit(1)
