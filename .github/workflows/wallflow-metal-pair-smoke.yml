@@ -1,0 +1,22 @@
+name: Wallflow Metal texture-pair smoke
+
+on:
+  push:
+    paths:
+      - 'wallflow-metal-pair-smoke/**'
+      - '.github/workflows/wallflow-metal-pair-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metal-pair:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build public texture-pair harness
+        run: swift build --package-path wallflow-metal-pair-smoke -c release
+      - name: Validate ping-pong resources and completion
+        run: swift run --package-path wallflow-metal-pair-smoke -c release WallflowMetalPairSmoke
