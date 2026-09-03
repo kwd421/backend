@@ -214,7 +214,8 @@ private struct ScriptLifecycleSmoke {
             .apply(["mode": "1"])
         ])
         precondition(session.updateCallCount == 0)
-        precondition(try runtime.prepareFrame(properties: initial) == 2)
+        let acceptedGeneration = try runtime.prepareFrame(properties: initial)
+        precondition(acceptedGeneration == 2)
     }
 
     @MainActor
