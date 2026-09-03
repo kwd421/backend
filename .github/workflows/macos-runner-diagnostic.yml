@@ -124,6 +124,15 @@ jobs:
             -o /tmp/effect-chain-ping-pong
           /tmp/effect-chain-ping-pong
 
+      - name: Compile ImageLayer render-target store invariant
+        run: |
+          swiftc \
+            -swift-version 6 \
+            -parse-as-library \
+            Diagnostics/ImageLayerRenderTargetStoreSmoke.swift \
+            -o /tmp/image-layer-target-store
+          /tmp/image-layer-target-store
+
   linux-control:
     runs-on: ubuntu-latest
     timeout-minutes: 5
