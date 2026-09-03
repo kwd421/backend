@@ -151,12 +151,12 @@ let effectOwner = EffectScriptOwner(
 let mixed = try ScriptInventoryCompiler.compile(
     authored: [
         (
-            path: #"$["objects"#0][0]["effects"#2][1]["passes"#1][2]["constantshadervalues"#0]["gain"#0]["script"#0]"#,
+            path: "objects[0].effects[1].passes[2].constantshadervalues.gain.script",
             range: effectRange,
             source: "export function update(value) { return value + 1; }"
         ),
         (
-            path: #"$["objects"#0][0]["visible"#3]["script"#0]"#,
+            path: "objects[0].visible.script",
             range: visibleRange,
             source: "export function update() { return true; }"
         )
