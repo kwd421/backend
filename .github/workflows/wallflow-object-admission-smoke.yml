@@ -1,0 +1,28 @@
+name: Wallflow object admission smoke
+
+on:
+  push:
+    paths:
+      - wallflow-object-admission-smoke/**
+      - .github/workflows/wallflow-object-admission-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift toolchain
+        run: swift --version
+      - name: Build with complete concurrency checking
+        run: >-
+          swift build
+          --package-path wallflow-object-admission-smoke
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warnings-as-errors
+      - name: Validate complete object ownership
+        run: >-
+          swift run
+          --package-path wallflow-object-admission-smoke
+          wallflow-object-admission-smoke
