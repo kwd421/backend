@@ -1,0 +1,76 @@
+name: Fix Sendable completion smoke ordering
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-sendable-completion-smoke-order.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Wait for the callback before reading its snapshot
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('macos-metal-sendable-completion-smoke/Sources/MetalSendableCompletionSmoke/main.swift')
+          text = path.read_text()
+          old = '''let callback = box.snapshot()
+          guard commandBuffer.status == .completed,
+                semaphore.wait(timeout: .now() + 5) == .success,
+                callback.0 == MTLCommandBufferStatus.completed.rawValue else {
+              fputs(
+                  "METAL_SENDABLE_COMPLETION_FAILED: waited=\\(commandBuffer.status.rawValue) callback=\\(String(describing: callback.0)) error=\\(callback.1 ?? "none")\\n",
+                  stderr
+              )
+              exit(EXIT_FAILURE)
+          }
+          '''
+          new = '''guard commandBuffer.status == .completed,
+                semaphore.wait(timeout: .now() + 5) == .success else {
+              fputs(
+                  "METAL_SENDABLE_COMPLETION_FAILED: waited=\\(commandBuffer.status.rawValue) callback timed out error=\\(commandBuffer.error?.localizedDescription ?? "none")\\n",
+                  stderr
+              )
+              exit(EXIT_FAILURE)
+          }
+
+          let callback = box.snapshot()
+          guard callback.0 == MTLCommandBufferStatus.completed.rawValue else {
+              fputs(
+                  "METAL_SENDABLE_COMPLETION_FAILED: waited=\\(commandBuffer.status.rawValue) callback=\\(String(describing: callback.0)) error=\\(callback.1 ?? "none")\\n",
+                  stderr
+              )
+              exit(EXIT_FAILURE)
+          }
+          '''
+          if old not in text:
+              raise SystemExit('expected smoke ordering block was not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Build and execute repaired probe
+        run: |
+          swift build --package-path macos-metal-sendable-completion-smoke -c release
+          swift run --package-path macos-metal-sendable-completion-smoke -c release MetalSendableCompletionSmoke
+
+      - name: Commit repaired probe and remove this one-shot workflow
+        run: |
+          git rm .github/workflows/fix-sendable-completion-smoke-order.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add macos-metal-sendable-completion-smoke
+          git commit -m 'ci: fix Sendable Metal completion probe ordering [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
