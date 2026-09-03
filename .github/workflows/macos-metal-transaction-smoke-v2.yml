@@ -1,0 +1,29 @@
+name: macOS Metal transaction smoke v2
+
+on:
+  push:
+    paths:
+      - 'macos-metal-transaction-smoke-v2/**'
+      - '.github/workflows/macos-metal-transaction-smoke-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metal-transaction:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Swift and Metal host
+        run: |
+          swift --version
+          system_profiler SPDisplaysDataType || true
+
+      - name: Build standalone smoke harness
+        run: swift build --package-path macos-metal-transaction-smoke-v2 -c release
+
+      - name: Exercise driver-owned completion callback
+        run: swift run --package-path macos-metal-transaction-smoke-v2 -c release MetalTransactionSmokeV2
