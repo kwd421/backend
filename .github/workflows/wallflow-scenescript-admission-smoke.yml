@@ -1,0 +1,25 @@
+name: Wallflow SceneScript admission smoke
+
+on:
+  push:
+    paths:
+      - wallflow-scenescript-admission-smoke/**
+      - .github/workflows/wallflow-scenescript-admission-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift toolchain
+        run: swift --version
+      - name: Build with complete concurrency checking
+        run: >-
+          swift build
+          --package-path wallflow-scenescript-admission-smoke
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warnings-as-errors
+      - name: Validate source-owned SceneScript admission
+        run: swift run --package-path wallflow-scenescript-admission-smoke wallflow-scenescript-admission-smoke
