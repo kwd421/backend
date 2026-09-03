@@ -1,0 +1,36 @@
+name: macOS runner diagnostic
+
+on:
+  push:
+    branches:
+      - diag/github-actions-macos-runner-20260903
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Runner info
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          swift --version
+      - name: Compile and run Swift smoke test
+        run: |
+          cat > /tmp/ci-smoke.swift <<'SWIFT'
+          import Foundation
+          print("macOS GitHub Actions runner OK")
+          SWIFT
+          swiftc /tmp/ci-smoke.swift -o /tmp/ci-smoke
+          /tmp/ci-smoke
+
+  linux-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Control runner
+        run: |
+          uname -a
+          echo "Linux GitHub Actions runner OK"
