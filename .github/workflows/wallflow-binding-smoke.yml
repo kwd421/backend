@@ -1,0 +1,22 @@
+name: Wallflow exact binding smoke
+
+on:
+  push:
+    paths:
+      - 'wallflow-binding-smoke/**'
+      - '.github/workflows/wallflow-binding-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  binding-plan:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sanitized binding planner
+        run: swift build --package-path wallflow-binding-smoke -c release
+      - name: Verify fail-closed identity joins
+        run: swift run --package-path wallflow-binding-smoke -c release WallflowBindingSmoke
