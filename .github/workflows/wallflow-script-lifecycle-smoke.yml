@@ -1,0 +1,30 @@
+name: Wallflow script lifecycle smoke
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - wallflow-script-lifecycle-smoke/**
+      - .github/workflows/wallflow-script-lifecycle-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  script-lifecycle-smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Compile with complete concurrency checking
+        run: |
+          swiftc \
+            -parse-as-library \
+            -swift-version 6 \
+            -strict-concurrency=complete \
+            -warnings-as-errors \
+            wallflow-script-lifecycle-smoke/ScriptLifecycleSmoke.swift \
+            -o /tmp/wallflow-script-lifecycle-smoke
+      - name: Verify fail-closed lifecycle ownership
+        run: /tmp/wallflow-script-lifecycle-smoke
