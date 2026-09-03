@@ -8,9 +8,14 @@ let package = Package(
         .executable(
             name: "wallflow-product-frame-snapshot-smoke",
             targets: ["SnapshotSmoke"]
+        ),
+        .executable(
+            name: "wallflow-metal-type-boundary-smoke",
+            targets: ["MetalTypeBoundarySmoke"]
         )
     ],
     targets: [
-        .executableTarget(name: "SnapshotSmoke")
+        .executableTarget(name: "SnapshotSmoke"),
+        .executableTarget(name: "MetalTypeBoundarySmoke")
     ]
 )

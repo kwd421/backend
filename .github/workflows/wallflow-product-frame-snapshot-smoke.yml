@@ -15,5 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show Swift toolchain
         run: swift --version
-      - name: Validate exact snapshot invariants
-        run: swift run --package-path wallflow-product-frame-snapshot-smoke
+      - name: Validate exact snapshot and ownership invariants
+        run: swift run --package-path wallflow-product-frame-snapshot-smoke wallflow-product-frame-snapshot-smoke
+      - name: Validate Metal and CoreGraphics type boundaries
+        run: swift run --package-path wallflow-product-frame-snapshot-smoke wallflow-metal-type-boundary-smoke
