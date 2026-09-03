@@ -1,30 +1,107 @@
-name: macOS runner diagnostic
+name: macOS Metal actor-isolation diagnostic
 
 on:
   push:
     branches:
       - diag/github-actions-macos-runner-20260903
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  macos:
+  metal-completion-handler:
     runs-on: macos-15
     timeout-minutes: 10
     steps:
-      - name: Runner info
+      - uses: actions/checkout@v4
+
+      - name: Runner and Swift information
         run: |
           sw_vers
           uname -m
           xcodebuild -version
           swift --version
-      - name: Compile and run Swift smoke test
+
+      - name: Compile nonisolated Metal completion relay
         run: |
-          cat > /tmp/ci-smoke.swift <<'SWIFT'
+          cat > /tmp/metal-actor-relay.swift <<'SWIFT'
           import Foundation
-          print("macOS GitHub Actions runner OK")
+          import Metal
+
+          enum SmokeError: Error {
+              case noDevice
+              case noCommandQueue
+              case noCommandBuffer
+              case completionDidNotFinish
+          }
+
+          @MainActor
+          final class CompletionOwner {
+              private var didFinish = false
+              private var succeeded = false
+
+              func run() async throws {
+                  guard let device = MTLCreateSystemDefaultDevice() else {
+                      throw SmokeError.noDevice
+                  }
+                  guard let queue = device.makeCommandQueue() else {
+                      throw SmokeError.noCommandQueue
+                  }
+                  guard let commandBuffer = queue.makeCommandBuffer() else {
+                      throw SmokeError.noCommandBuffer
+                  }
+
+                  // The handler is created in an explicitly nonisolated context. This
+                  // prevents the callback itself from inheriting MainActor isolation
+                  // before Metal invokes it on a driver-owned background thread.
+                  commandBuffer.addCompletedHandler(
+                      Self.makeCompletionHandler(owner: self)
+                  )
+                  commandBuffer.commit()
+                  commandBuffer.waitUntilCompleted()
+
+                  for _ in 0..<100 where !didFinish {
+                      await Task.yield()
+                  }
+                  guard didFinish, succeeded else {
+                      throw SmokeError.completionDidNotFinish
+                  }
+              }
+
+              nonisolated private static func makeCompletionHandler(
+                  owner: CompletionOwner
+              ) -> MTLCommandBufferHandler {
+                  { commandBuffer in
+                      let succeeded = commandBuffer.status == .completed
+                      Task { @MainActor in
+                          owner.finish(succeeded: succeeded)
+                      }
+                  }
+              }
+
+              private func finish(succeeded: Bool) {
+                  self.succeeded = succeeded
+                  didFinish = true
+              }
+          }
+
+          @main
+          struct Main {
+              static func main() async throws {
+                  let owner = await CompletionOwner()
+                  try await owner.run()
+                  print("nonisolated Metal completion relay OK")
+              }
+          }
           SWIFT
-          swiftc /tmp/ci-smoke.swift -o /tmp/ci-smoke
-          /tmp/ci-smoke
+
+          swiftc \
+            -swift-version 6 \
+            -parse-as-library \
+            /tmp/metal-actor-relay.swift \
+            -o /tmp/metal-actor-relay
+          /tmp/metal-actor-relay
 
   linux-control:
     runs-on: ubuntu-latest
