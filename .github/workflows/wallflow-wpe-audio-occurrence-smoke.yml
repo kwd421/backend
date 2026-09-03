@@ -1,0 +1,25 @@
+name: Wallflow exact WPE audio occurrence smoke
+
+on:
+  push:
+    paths:
+      - wallflow-wpe-audio-occurrence-smoke/**
+      - .github/workflows/wallflow-wpe-audio-occurrence-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift toolchain
+        run: swift --version
+      - name: Build with complete Swift concurrency checking
+        run: |
+          swift build \
+            --package-path wallflow-wpe-audio-occurrence-smoke \
+            -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -warnings-as-errors
+      - name: Validate exact one-shot AVAudio scheduling
+        run: swift run --package-path wallflow-wpe-audio-occurrence-smoke wallflow-wpe-audio-occurrence-smoke
