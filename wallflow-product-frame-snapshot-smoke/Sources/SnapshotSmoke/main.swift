@@ -71,6 +71,58 @@ struct ProductFrameSnapshot {
     let pointer: PointerSnapshot?
 }
 
+enum StaticClearAdmissionError: Error, Equatable {
+    case missingClearEnabled
+    case unclearedBackbufferUnsupported
+    case missingClearColor
+    case invalidClearColor
+}
+
+struct StaticClearProgram: Equatable {
+    let clearEnabled: Bool?
+    let clearColor: [Double]?
+}
+
+struct StaticClearColor: Equatable {
+    let red: Double
+    let green: Double
+    let blue: Double
+}
+
+enum StaticClearAdmission {
+    static func resolve(
+        program: StaticClearProgram,
+        exactBackend: Bool,
+        fallback: StaticClearColor
+    ) throws -> StaticClearColor {
+        do {
+            guard let clearEnabled = program.clearEnabled else {
+                throw StaticClearAdmissionError.missingClearEnabled
+            }
+            guard clearEnabled else {
+                throw StaticClearAdmissionError.unclearedBackbufferUnsupported
+            }
+            guard let components = program.clearColor else {
+                throw StaticClearAdmissionError.missingClearColor
+            }
+            guard components.count == 3,
+                  components.allSatisfy(\.isFinite) else {
+                throw StaticClearAdmissionError.invalidClearColor
+            }
+            return StaticClearColor(
+                red: components[0],
+                green: components[1],
+                blue: components[2]
+            )
+        } catch {
+            if exactBackend {
+                throw error
+            }
+            return fallback
+        }
+    }
+}
+
 enum MockFrameError: Error {
     case exactEncodingFailed
 }
@@ -99,6 +151,24 @@ final class MockProductFrameOwner {
         }
         legacyCalls += 1
         submitCalls += 1
+    }
+}
+
+final class MockDrawableOwner {
+    private(set) var acquisitionCount = 0
+
+    func beginFrame(
+        exactBackend: Bool,
+        program: StaticClearProgram,
+        fallback: StaticClearColor
+    ) throws -> StaticClearColor {
+        let color = try StaticClearAdmission.resolve(
+            program: program,
+            exactBackend: exactBackend,
+            fallback: fallback
+        )
+        acquisitionCount += 1
+        return color
     }
 }
 
@@ -175,4 +245,60 @@ do {
     require(false, "unexpected current-position error: \(error)")
 }
 
-print("PASS: exact product-frame ownership and snapshot invariants")
+let fallbackClear = StaticClearColor(red: 0.10, green: 0.10, blue: 0.15)
+let authoredClear = StaticClearProgram(
+    clearEnabled: true,
+    clearColor: [0.7, 0.2, 1.25]
+)
+let exactDrawable = MockDrawableOwner()
+let exactClear = try exactDrawable.beginFrame(
+    exactBackend: true,
+    program: authoredClear,
+    fallback: fallbackClear
+)
+require(exactClear == StaticClearColor(red: 0.7, green: 0.2, blue: 1.25), "authored clear color changed")
+require(exactDrawable.acquisitionCount == 1, "supported exact clear did not acquire one drawable")
+
+let unsupportedExactDrawable = MockDrawableOwner()
+do {
+    _ = try unsupportedExactDrawable.beginFrame(
+        exactBackend: true,
+        program: StaticClearProgram(
+            clearEnabled: false,
+            clearColor: [0.7, 0.2, 1.25]
+        ),
+        fallback: fallbackClear
+    )
+    require(false, "uncleared exact backbuffer was approximated")
+} catch StaticClearAdmissionError.unclearedBackbufferUnsupported {
+}
+require(unsupportedExactDrawable.acquisitionCount == 0, "failed exact clear acquired a drawable")
+
+let missingExactDrawable = MockDrawableOwner()
+do {
+    _ = try missingExactDrawable.beginFrame(
+        exactBackend: true,
+        program: StaticClearProgram(
+            clearEnabled: nil,
+            clearColor: [0.7, 0.2, 1.25]
+        ),
+        fallback: fallbackClear
+    )
+    require(false, "missing exact clear default was invented")
+} catch StaticClearAdmissionError.missingClearEnabled {
+}
+require(missingExactDrawable.acquisitionCount == 0, "missing exact clear acquired a drawable")
+
+let legacyDrawable = MockDrawableOwner()
+let legacyClear = try legacyDrawable.beginFrame(
+    exactBackend: false,
+    program: StaticClearProgram(
+        clearEnabled: false,
+        clearColor: nil
+    ),
+    fallback: fallbackClear
+)
+require(legacyClear == fallbackClear, "legacy compatibility fallback changed")
+require(legacyDrawable.acquisitionCount == 1, "legacy fallback did not acquire one drawable")
+
+print("PASS: exact product-frame ownership, snapshot, and clear admission invariants")
