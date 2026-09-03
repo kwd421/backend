@@ -95,6 +95,43 @@ final class MockRendererFactory {
     }
 }
 
+struct ExactRuntime: Equatable, Sendable {
+    let authoredEffectCount: Int
+}
+
+enum ExactRuntimeFactoryError: Error, Equatable, Sendable {
+    case invalidEffectCount
+}
+
+enum ExactRuntimeFactory {
+    static func make(authoredEffectCount: Int) throws -> ExactRuntime {
+        guard authoredEffectCount >= 0 else {
+            throw ExactRuntimeFactoryError.invalidEffectCount
+        }
+        return ExactRuntime(authoredEffectCount: authoredEffectCount)
+    }
+}
+
+enum ExactFrameError: Error, Equatable, Sendable {
+    case encodingFailed
+}
+
+final class ExactProductFrameOwner {
+    let runtime: ExactRuntime
+    private(set) var submitCount = 0
+
+    init(runtime: ExactRuntime) {
+        self.runtime = runtime
+    }
+
+    func renderAndSubmit(failEncoding: Bool = false) throws {
+        guard !failEncoding else {
+            throw ExactFrameError.encodingFailed
+        }
+        submitCount += 1
+    }
+}
+
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
         fputs("FAIL: \(message)\n", stderr)
@@ -181,4 +218,21 @@ do {
     require(range == effectRange, "duplicate-owner diagnostics changed range")
 }
 
-print("PASS: SceneScript admission is source-owned and precedes renderer creation")
+let noEffectRuntime = try ExactRuntimeFactory.make(authoredEffectCount: 0)
+let noEffectOwner = ExactProductFrameOwner(runtime: noEffectRuntime)
+try noEffectOwner.renderAndSubmit()
+require(noEffectOwner.runtime.authoredEffectCount == 0, "zero-effect package changed identity")
+require(noEffectOwner.submitCount == 1, "zero-effect package was not submitted by its exact owner")
+
+let effectRuntime = try ExactRuntimeFactory.make(authoredEffectCount: 3)
+let effectFrameOwner = ExactProductFrameOwner(runtime: effectRuntime)
+do {
+    try effectFrameOwner.renderAndSubmit(failEncoding: true)
+    require(false, "failed exact frame was accepted")
+} catch ExactFrameError.encodingFailed {
+}
+require(effectFrameOwner.submitCount == 0, "failed exact frame submitted")
+try effectFrameOwner.renderAndSubmit()
+require(effectFrameOwner.submitCount == 1, "successful exact frame was not submitted exactly once")
+
+print("PASS: SceneScript admission and zero-effect product frames remain exact-only")
