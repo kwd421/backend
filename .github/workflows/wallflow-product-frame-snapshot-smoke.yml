@@ -1,0 +1,19 @@
+name: Wallflow product-frame snapshot smoke
+
+on:
+  push:
+    paths:
+      - wallflow-product-frame-snapshot-smoke/**
+      - .github/workflows/wallflow-product-frame-snapshot-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift toolchain
+        run: swift --version
+      - name: Validate exact snapshot invariants
+        run: swift run --package-path wallflow-product-frame-snapshot-smoke
