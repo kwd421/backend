@@ -1,0 +1,22 @@
+name: macOS explicit Sendable Metal completion smoke
+
+on:
+  push:
+    paths:
+      - 'macos-metal-sendable-completion-smoke/**'
+      - '.github/workflows/macos-metal-sendable-completion-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sendable-completion:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build explicit Sendable callback harness
+        run: swift build --package-path macos-metal-sendable-completion-smoke -c release
+      - name: Execute explicit Sendable callback harness
+        run: swift run --package-path macos-metal-sendable-completion-smoke -c release MetalSendableCompletionSmoke
