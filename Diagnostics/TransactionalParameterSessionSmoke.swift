@@ -199,7 +199,8 @@ struct Main {
             transaction: firstTransaction,
             delta: 1
         )
-        precondition(try firstFrame.value() == 1)
+        let firstValue = try firstFrame.value()
+        precondition(firstValue == 1)
         requireSmokeError(.frameAlreadyPending(1)) {
             _ = try session.prepareFrame(
                 transaction: firstTransaction,
@@ -219,7 +220,8 @@ struct Main {
             transaction: secondTransaction,
             delta: 1
         )
-        precondition(try secondFrame.value() == 1)
+        let secondValue = try secondFrame.value()
+        precondition(secondValue == 1)
         requireSmokeError(.staleFrame(expected: 1, actual: 2)) {
             _ = try firstFrame.value()
         }
