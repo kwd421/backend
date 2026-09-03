@@ -12,10 +12,15 @@ let package = Package(
         .executable(
             name: "wallflow-metal-type-boundary-smoke",
             targets: ["MetalTypeBoundarySmoke"]
+        ),
+        .executable(
+            name: "wallflow-audio-publication-owner-smoke",
+            targets: ["AudioPublicationOwnerSmoke"]
         )
     ],
     targets: [
         .executableTarget(name: "SnapshotSmoke"),
-        .executableTarget(name: "MetalTypeBoundarySmoke")
+        .executableTarget(name: "MetalTypeBoundarySmoke"),
+        .executableTarget(name: "AudioPublicationOwnerSmoke")
     ]
 )

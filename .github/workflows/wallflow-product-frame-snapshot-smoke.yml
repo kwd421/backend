@@ -19,3 +19,5 @@ jobs:
         run: swift run --package-path wallflow-product-frame-snapshot-smoke wallflow-product-frame-snapshot-smoke
       - name: Validate Metal and CoreGraphics type boundaries
         run: swift run --package-path wallflow-product-frame-snapshot-smoke wallflow-metal-type-boundary-smoke
+      - name: Validate audio publication and renderer-history ownership
+        run: swift run --package-path wallflow-product-frame-snapshot-smoke wallflow-audio-publication-owner-smoke
