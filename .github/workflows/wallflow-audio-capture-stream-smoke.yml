@@ -1,0 +1,31 @@
+name: Wallflow audio capture stream smoke
+
+on:
+  push:
+    paths:
+      - wallflow-audio-capture-stream-smoke/**
+      - .github/workflows/wallflow-audio-capture-stream-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Swift toolchain
+        run: swift --version
+      - name: Validate PCM FIFO and producer lifecycle
+        run: |
+          swift run \
+            --package-path wallflow-audio-capture-stream-smoke \
+            -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -warnings-as-errors \
+            wallflow-audio-capture-stream-smoke
+      - name: Type-check AVFoundation tap adapter
+        run: |
+          swift build \
+            --package-path wallflow-audio-capture-stream-smoke \
+            --product wallflow-avfoundation-tap-type-smoke \
+            -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -warnings-as-errors
