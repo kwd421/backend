@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - diag/github-actions-macos-runner-20260903
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
@@ -108,6 +105,15 @@ jobs:
             Diagnostics/ProductLayerAttachmentSmoke.swift \
             -o /tmp/product-layer-attachment
           /tmp/product-layer-attachment
+
+      - name: Compile transactional parameter-state invariant
+        run: |
+          swiftc \
+            -swift-version 6 \
+            -parse-as-library \
+            Diagnostics/TransactionalParameterSessionSmoke.swift \
+            -o /tmp/transactional-parameter-session
+          /tmp/transactional-parameter-session
 
   linux-control:
     runs-on: ubuntu-latest
