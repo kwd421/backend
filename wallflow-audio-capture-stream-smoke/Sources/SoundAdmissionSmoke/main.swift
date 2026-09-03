@@ -51,7 +51,7 @@ enum SoundAdmission {
         return result
     }
 
-    static func validateForExactProduct(_ sounds: [AuthoredSound]) throws {
+    static func validateForOriginalPackage(_ sounds: [AuthoredSound]) throws {
         guard sounds.isEmpty else {
             throw SoundAdmissionError.unrecoveredPlaybackSchedule(sounds)
         }
@@ -60,6 +60,21 @@ enum SoundAdmission {
     private static func exactNumber(_ value: Any?) -> String? {
         guard let number = value as? NSNumber else { return nil }
         return number.stringValue
+    }
+}
+
+enum ProductBackend: Equatable {
+    case legacy
+    case exact
+}
+
+enum ProductHostAdmission {
+    static func selectBackend(
+        hasExactEffects: Bool,
+        authoredSounds: [AuthoredSound]
+    ) throws -> ProductBackend {
+        try SoundAdmission.validateForOriginalPackage(authoredSounds)
+        return hasExactEffects ? .exact : .legacy
     }
 }
 
@@ -76,7 +91,11 @@ let noAuthoredSound = try SoundAdmission.compile(
 )
 require(noAuthoredSound.isEmpty, "an unreferenced archive sound was selected")
 require(archiveAssets.count == 1, "fixture did not retain the unreferenced asset")
-try SoundAdmission.validateForExactProduct(noAuthoredSound)
+let legacyBackend = try ProductHostAdmission.selectBackend(
+    hasExactEffects: false,
+    authoredSounds: noAuthoredSound
+)
+require(legacyBackend == .legacy, "a sound-free package did not retain legacy selection")
 
 let catLike = try SoundAdmission.compile(sceneData: Data(#"""
 {"objects":[
@@ -92,10 +111,23 @@ require(catLike[0].volume == "0.5", "authored volume changed")
 require(catLike[0].minimumTime == "1", "authored mintime changed")
 require(catLike[0].maximumTime == "5", "authored maxtime changed")
 do {
-    try SoundAdmission.validateForExactProduct(catLike)
-    require(false, "unrecovered timed playback was admitted")
+    _ = try ProductHostAdmission.selectBackend(
+        hasExactEffects: true,
+        authoredSounds: catLike
+    )
+    require(false, "unrecovered timed playback was admitted on the exact backend")
 } catch SoundAdmissionError.unrecoveredPlaybackSchedule(let sounds) {
-    require(sounds == catLike, "admission diagnostics lost authored data")
+    require(sounds == catLike, "exact admission diagnostics lost authored data")
+}
+
+do {
+    _ = try ProductHostAdmission.selectBackend(
+        hasExactEffects: false,
+        authoredSounds: catLike
+    )
+    require(false, "a sound-only package bypassed admission through legacy selection")
+} catch SoundAdmissionError.unrecoveredPlaybackSchedule(let sounds) {
+    require(sounds == catLike, "legacy-candidate admission diagnostics lost authored data")
 }
 
 let multiple = try SoundAdmission.compile(sceneData: Data(#"""
@@ -111,4 +143,4 @@ require(multiple.map(\.paths) == [
     ["sounds/c.wav"]
 ], "sound path shape changed")
 
-print("PASS: authored Scene sound admission remains lossless and fail-closed")
+print("PASS: authored Scene sound admission precedes every backend selection")
