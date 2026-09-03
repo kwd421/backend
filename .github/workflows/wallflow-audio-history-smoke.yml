@@ -1,0 +1,30 @@
+name: Wallflow audio history smoke
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - wallflow-audio-history-smoke/**
+      - .github/workflows/wallflow-audio-history-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  audio-history-smoke:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Compile with complete concurrency checking
+        run: |
+          swiftc \
+            -parse-as-library \
+            -swift-version 6 \
+            -strict-concurrency=complete \
+            -warnings-as-errors \
+            wallflow-audio-history-smoke/AudioHistorySmoke.swift \
+            -o /tmp/wallflow-audio-history-smoke
+      - name: Verify renderer history transaction ownership
+        run: /tmp/wallflow-audio-history-smoke
