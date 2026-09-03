@@ -4,8 +4,12 @@ private struct ScriptCallbacks: Sendable {
     let hasApplyUserProperties: Bool
 }
 
+private struct UserProperties: Equatable, Sendable {
+    let rawValues: [String: String]
+}
+
 private enum ScriptRuntimeError: Error, Equatable {
-    case propertyEventAdapterMissing(callbackCount: Int)
+    case propertiesChangedWithoutEventAdapter
     case terminalFailure(String)
 }
 
@@ -15,7 +19,15 @@ private enum SessionFailure: Error {
 
 @MainActor
 private final class DeterministicScriptSession {
+    enum Event: Equatable {
+        case initialize
+        case apply([String: String])
+        case update
+    }
+
     private(set) var generation = 0
+    private(set) var value = 1
+    private(set) var events: [Event] = []
     private(set) var updateCallCount = 0
     private let failingUpdateCall: Int?
 
@@ -24,15 +36,26 @@ private final class DeterministicScriptSession {
     }
 
     func initializeScripts() -> Int {
+        events.append(.initialize)
+        value = 9
+        generation += 1
+        return generation
+    }
+
+    func applyUserProperties(_ properties: [String: String]) -> Int {
+        events.append(.apply(properties))
+        value = Int(properties["mode"] ?? "") ?? value
         generation += 1
         return generation
     }
 
     func updateScripts() throws -> Int {
+        events.append(.update)
         updateCallCount += 1
         if updateCallCount == failingUpdateCall {
             throw SessionFailure.intentionalUpdateFailure
         }
+        value += 1
         generation += 1
         return generation
     }
@@ -41,28 +64,30 @@ private final class DeterministicScriptSession {
 @MainActor
 private final class ProductScriptRuntime {
     private let session: DeterministicScriptSession
+    private let initialProperties: UserProperties
     private var currentGeneration: Int
     private var terminalError: ScriptRuntimeError?
 
     init(
         callbacks: [ScriptCallbacks],
-        session: DeterministicScriptSession
-    ) throws {
-        let unsupportedCount = callbacks.lazy.filter {
-            $0.hasApplyUserProperties
-        }.count
-        guard unsupportedCount == 0 else {
-            throw ScriptRuntimeError.propertyEventAdapterMissing(
-                callbackCount: unsupportedCount
-            )
-        }
+        session: DeterministicScriptSession,
+        initialProperties: UserProperties
+    ) {
         self.session = session
-        currentGeneration = session.initializeScripts()
+        self.initialProperties = initialProperties
+        var generation = session.initializeScripts()
+        if callbacks.contains(where: \.hasApplyUserProperties) {
+            generation = session.applyUserProperties(initialProperties.rawValues)
+        }
+        currentGeneration = generation
     }
 
-    func snapshot() throws -> Int {
+    func prepareFrame(properties: UserProperties) throws -> Int {
         if let terminalError {
             throw terminalError
+        }
+        guard properties == initialProperties else {
+            throw ScriptRuntimeError.propertiesChangedWithoutEventAdapter
         }
         return currentGeneration
     }
@@ -122,7 +147,8 @@ private final class FrameTransaction {
 private struct ScriptLifecycleSmoke {
     @MainActor
     static func main() throws {
-        try verifyApplyUserPropertiesFailsClosed()
+        try verifyInitialPropertiesFollowInitAndPrecedeUpdate()
+        try verifyChangedPropertiesFailBeforeFrameAdmission()
         try verifyRollbackDoesNotAdvanceScripts()
         try verifySubmittedFrameAdvancesExactlyOnce()
         try verifyPostSubmitFailurePoisonsNextFrame()
@@ -130,31 +156,79 @@ private struct ScriptLifecycleSmoke {
     }
 
     @MainActor
-    private static func verifyApplyUserPropertiesFailsClosed() throws {
-        do {
-            _ = try ProductScriptRuntime(
-                callbacks: [
-                    ScriptCallbacks(hasApplyUserProperties: true),
-                    ScriptCallbacks(hasApplyUserProperties: false),
-                    ScriptCallbacks(hasApplyUserProperties: true)
-                ],
-                session: DeterministicScriptSession()
-            )
-            fatalError("applyUserProperties callbacks were silently accepted")
-        } catch ScriptRuntimeError.propertyEventAdapterMissing(let callbackCount) {
-            precondition(callbackCount == 2)
+    private static func verifyInitialPropertiesFollowInitAndPrecedeUpdate() throws {
+        let session = DeterministicScriptSession()
+        let properties = UserProperties(rawValues: ["mode": "2"])
+        let runtime = ProductScriptRuntime(
+            callbacks: [
+                ScriptCallbacks(hasApplyUserProperties: false),
+                ScriptCallbacks(hasApplyUserProperties: true)
+            ],
+            session: session,
+            initialProperties: properties
+        )
+
+        let firstGeneration = try runtime.prepareFrame(properties: properties)
+        precondition(firstGeneration == 2)
+        precondition(session.value == 2)
+        precondition(session.events == [
+            .initialize,
+            .apply(["mode": "2"])
+        ])
+
+        let transaction = FrameTransaction()
+        try transaction.publishCompletion {
+            runtime.completeSubmittedFrame()
         }
+        try transaction.submitAndComplete()
+
+        let secondGeneration = try runtime.prepareFrame(properties: properties)
+        precondition(secondGeneration == 3)
+        precondition(session.value == 3)
+        precondition(session.events == [
+            .initialize,
+            .apply(["mode": "2"]),
+            .update
+        ])
+    }
+
+    @MainActor
+    private static func verifyChangedPropertiesFailBeforeFrameAdmission() throws {
+        let session = DeterministicScriptSession()
+        let initial = UserProperties(rawValues: ["mode": "1"])
+        let runtime = ProductScriptRuntime(
+            callbacks: [ScriptCallbacks(hasApplyUserProperties: true)],
+            session: session,
+            initialProperties: initial
+        )
+
+        do {
+            _ = try runtime.prepareFrame(
+                properties: UserProperties(rawValues: ["mode": "2"])
+            )
+            fatalError("a changed property snapshot bypassed its missing event adapter")
+        } catch ScriptRuntimeError.propertiesChangedWithoutEventAdapter {
+        }
+        precondition(session.events == [
+            .initialize,
+            .apply(["mode": "1"])
+        ])
+        precondition(session.updateCallCount == 0)
+        precondition(try runtime.prepareFrame(properties: initial) == 2)
     }
 
     @MainActor
     private static func verifyRollbackDoesNotAdvanceScripts() throws {
         let session = DeterministicScriptSession()
-        let runtime = try ProductScriptRuntime(
+        let properties = UserProperties(rawValues: [:])
+        let runtime = ProductScriptRuntime(
             callbacks: [ScriptCallbacks(hasApplyUserProperties: false)],
-            session: session
+            session: session,
+            initialProperties: properties
         )
-        let initial = try runtime.snapshot()
+        let initial = try runtime.prepareFrame(properties: properties)
         precondition(initial == 1)
+        precondition(session.events == [.initialize])
 
         let transaction = FrameTransaction()
         try transaction.publishCompletion {
@@ -163,18 +237,20 @@ private struct ScriptLifecycleSmoke {
         try transaction.rollback()
 
         precondition(session.updateCallCount == 0)
-        let afterRollback = try runtime.snapshot()
+        let afterRollback = try runtime.prepareFrame(properties: properties)
         precondition(afterRollback == initial)
     }
 
     @MainActor
     private static func verifySubmittedFrameAdvancesExactlyOnce() throws {
         let session = DeterministicScriptSession()
-        let runtime = try ProductScriptRuntime(
+        let properties = UserProperties(rawValues: [:])
+        let runtime = ProductScriptRuntime(
             callbacks: [ScriptCallbacks(hasApplyUserProperties: false)],
-            session: session
+            session: session,
+            initialProperties: properties
         )
-        let initial = try runtime.snapshot()
+        let initial = try runtime.prepareFrame(properties: properties)
 
         let transaction = FrameTransaction()
         try transaction.publishCompletion {
@@ -183,16 +259,18 @@ private struct ScriptLifecycleSmoke {
         try transaction.submitAndComplete()
 
         precondition(session.updateCallCount == 1)
-        let afterSubmission = try runtime.snapshot()
+        let afterSubmission = try runtime.prepareFrame(properties: properties)
         precondition(afterSubmission == initial + 1)
     }
 
     @MainActor
     private static func verifyPostSubmitFailurePoisonsNextFrame() throws {
         let session = DeterministicScriptSession(failingUpdateCall: 1)
-        let runtime = try ProductScriptRuntime(
+        let properties = UserProperties(rawValues: [:])
+        let runtime = ProductScriptRuntime(
             callbacks: [ScriptCallbacks(hasApplyUserProperties: false)],
-            session: session
+            session: session,
+            initialProperties: properties
         )
         let transaction = FrameTransaction()
         try transaction.publishCompletion {
@@ -201,7 +279,7 @@ private struct ScriptLifecycleSmoke {
         try transaction.submitAndComplete()
 
         do {
-            _ = try runtime.snapshot()
+            _ = try runtime.prepareFrame(properties: properties)
             fatalError("a post-submit script failure did not poison the next frame")
         } catch ScriptRuntimeError.terminalFailure(let message) {
             precondition(!message.isEmpty)
